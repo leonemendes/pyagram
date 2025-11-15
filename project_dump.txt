@@ -1,0 +1,186 @@
+
+# 📁 Directory: .
+
+
+# 📁 Directory: backend
+
+## 📄 File: backend/requirements.txt
+```
+chardet==5.2.0
+fastapi==0.105.0
+```
+
+
+# 📁 Directory: backend/core
+
+## 📄 File: backend/core/__init__.py
+```
+
+```
+
+
+# 📁 Directory: backend/core/runtime
+
+## 📄 File: backend/core/runtime/__init__.py
+```
+
+```
+
+## 📄 File: backend/core/runtime/executor.py
+```
+# core/runtime/executor.py
+from typing import Dict, Any
+from core.model.workflow import Workflow
+
+OPS = {
+    "AND": lambda a, b: a and b,
+    "OR": lambda a, b: a or b,
+    "NOT": lambda x: not x,
+    "IF": lambda cond, a, b: a if cond else b
+}
+
+class WorkflowExecutor:
+    def __init__(self, workflow: Workflow):
+        self.workflow = workflow
+
+    def run(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        context = dict(inputs)
+        for node in self.workflow.nodes:
+            fn = OPS.get(node.type)
+            if not fn:
+                raise ValueError(f"Unknown node type: {node.type}")
+            args = [context[i] for i in node.inputs if i in context]
+            out = fn(*args)
+            for out_name in node.outputs:
+                context[out_name] = out
+        return context
+
+```
+
+
+# 📁 Directory: backend/core/model
+
+## 📄 File: backend/core/model/__init__.py
+```
+
+```
+
+## 📄 File: backend/core/model/export.py
+```
+# core/model/export.py
+from core.model.workflow import Workflow
+
+def export_to_python(workflow: Workflow, func_name="run_workflow"):
+    code = [f"def {func_name}(inputs):"]
+    code.append("    ctx = dict(inputs)")
+    for node in workflow.nodes:
+        if node.type == "AND":
+            expr = f"ctx['{node.outputs[0]}'] = ctx['{node.inputs[0]}'] and ctx['{node.inputs[1]}']"
+        elif node.type == "OR":
+            expr = f"ctx['{node.outputs[0]}'] = ctx['{node.inputs[0]}'] or ctx['{node.inputs[1]}']"
+        elif node.type == "NOT":
+            expr = f"ctx['{node.outputs[0]}'] = not ctx['{node.inputs[0]}']"
+        else:
+            expr = f"# Unsupported node {node.type}"
+        code.append(f"    {expr}")
+    code.append("    return ctx")
+    return "\n".join(code)
+
+```
+
+## 📄 File: backend/core/model/workflow.py
+```
+# core/model/workflow.py
+from typing import List, Dict, Callable
+
+class Node:
+    def __init__(self, node_id: str, type_: str, inputs: List[str], outputs: List[str]):
+        self.id = node_id
+        self.type = type_
+        self.inputs = inputs
+        self.outputs = outputs
+
+class Connection:
+    def __init__(self, source: str, target: str):
+        self.source = source
+        self.target = target
+
+class Workflow:
+    def __init__(self):
+        self.nodes: List[Node] = []
+        self.connections: List[Connection] = []
+
+    def to_dict(self):
+        return {
+            "nodes": [n.__dict__ for n in self.nodes],
+            "connections": [c.__dict__ for c in self.connections]
+        }
+
+    @staticmethod
+    def from_dict(data: Dict):
+        wf = Workflow()
+        for n in data["nodes"]:
+            wf.nodes.append(Node(n["id"], n["type"], n["inputs"], n["outputs"]))
+        for c in data["connections"]:
+            wf.connections.append(Connection(c["source"], c["target"]))
+        return wf
+
+```
+
+## 📄 File: backend/core/model/component.py
+```
+# core/model/component.py
+from typing import List, Dict
+from enum import Enum
+
+class Direction(Enum):
+    IN = 0
+    OUT = 1
+
+class Port:
+    def __init__(self, name: str, direction: Direction, datatype: str = "bool"):
+        self.name = name
+        self.direction = direction
+        self.datatype = datatype
+
+class Component:
+    def __init__(self, name: str):
+        self.name = name
+        self.ports: List[Port] = []
+        self.subcomponents: List["Component"] = []
+        self.connections: List[Dict] = []
+
+    def add_port(self, port: Port):
+        self.ports.append(port)
+
+    def connect(self, src: str, dst: str):
+        self.connections.append({"from": src, "to": dst})
+
+```
+
+
+# 📁 Directory: backend/core/api
+
+## 📄 File: backend/core/api/server.py
+```
+# core/api/server.py
+from fastapi import FastAPI
+from core.model.workflow import Workflow
+from core.runtime.executor import WorkflowExecutor
+
+app = FastAPI()
+
+@app.post("/run")
+def run_workflow(data: dict):
+    workflow = Workflow.from_dict(data["workflow"])
+    executor = WorkflowExecutor(workflow)
+    result = executor.run(data.get("inputs", {}))
+    return {"result": result}
+
+```
+
+## 📄 File: backend/core/api/__init__.py
+```
+
+```
+
